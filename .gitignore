@@ -3,3 +3,7 @@
 test_data/
 datasets/
 output_mats/
+model.safetensors
+preprocessor_config.json
+config.json
+.idea/
