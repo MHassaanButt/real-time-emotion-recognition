@@ -1,38 +1,25 @@
 import streamlit as st
-import cv2
 import tempfile
 import os
 import base64
-from utils.emotions import process_video
+from utils.emotions import emotion_process
 # Create an output folder if it doesn't exist
 output_folder = "output"
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
 
-# Function to process video (placeholder for your real processing logic)
-def process_video(input_path, output_path):
-    # For demonstration, just copying the input video to output
-    cap = cv2.VideoCapture(input_path)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
-
-    while (cap.isOpened()):
-        ret, frame = cap.read()
-        if ret:
-            out.write(frame)
-        else:
-            break
-
-    cap.release()
-    out.release()
-
-
 # Function to convert video file to base64
 def video_to_base64(file_path):
-    with open(file_path, "rb") as video_file:
-        video_bytes = video_file.read()
-    return base64.b64encode(video_bytes).decode("utf-8")
+    if file_path is None:
+        return None
+    try:
+        with open(file_path, "rb") as video_file:
+            video_bytes = video_file.read()
+        return base64.b64encode(video_bytes).decode("utf-8")
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return None
 
 
 # Streamlit app
@@ -42,53 +29,55 @@ uploaded_file = st.file_uploader("Choose a video...", type=["mp4", "avi", "mov",
 
 if uploaded_file is not None:
     # Save uploaded video to a temporary file
-    tfile = tempfile.NamedTemporaryFile(delete=False, dir=output_folder)
+    tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     tfile.write(uploaded_file.read())
     input_path = tfile.name
-    input_name = os.path.basename(input_path)
-
-    # Paths for the output video and graph
-    output_video_path = os.path.join(output_folder, f"{input_name}_out.mp4")
-    output_graph_path = os.path.join(output_folder, f"{input_name}_out.png")
 
     # Choose output type
     output_type = st.selectbox("Choose output type", ["Video", "Graph"])
 
     # Display input video
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("Input")
-        input_video_base64 = video_to_base64(input_path)
-        st.markdown(
-            f"""
-            <video width="320" height="240" controls>
-                <source src="data:video/mp4;base64,{input_video_base64}" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
-            """,
-            unsafe_allow_html=True
-        )
+    st.write("Input")
+    input_video_base64 = video_to_base64(input_path)
+    st.markdown(
+        f"""
+        <video width="640" height="480" controls>
+            <source src="data:video/mp4;base64,{input_video_base64}" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        """,
+        unsafe_allow_html=True
+    )
 
     # Process video on button click
     if st.button("Run"):
-        process_video(input_path, output_video_path)
+        # Call emotion_process function
+        out_path = emotion_process(input_path, output_option=output_type)
 
-        # Display output video or graph
-        with col2:
-            st.write("Output")
-            if output_type == "Video":
-                output_video_base64 = video_to_base64(output_video_path)
-                st.markdown(
-                    f"""
-                    <video width="320" height="240" controls>
-                        <source src="data:video/mp4;base64,{output_video_base64}" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                    """,
-                    unsafe_allow_html=True
-                )
-            elif output_type == "Graph":
-                st.image(output_graph_path, width=320)  # Replace with actual graph output
+        # Display output based on output_type
+        st.write("Output")
+        if output_type == "Video":
+            if out_path is not None:
+                output_video_base64 = video_to_base64(out_path)
+                if output_video_base64 is not None:
+                    st.markdown(
+                        f"""
+                        <video width="640" height="480" controls>
+                            <source src="data:video/mp4;base64,{output_video_base64}" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.error("Failed to load output video.")
+            else:
+                st.error("No output video generated.")
+        elif output_type == "Graph":
+            if out_path is not None and os.path.exists(out_path):
+                st.image(out_path, width=640)  # Display graph image
+            else:
+                st.error("No graph image found.")
 
     # Clean up temporary files
     tfile.close()

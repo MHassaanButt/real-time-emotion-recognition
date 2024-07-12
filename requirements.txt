@@ -1,0 +1,15 @@
+streamlit
+scikit-learn
+pandas
+sentencepiece
+torch==2.0.0
+transformers
+tweet-preprocessor
+joblib
+# tensorflow
+moviepy
+matplotlib
+seaborn
+facenet-pytorch
+opencv-python
+# facenet_pytorch
