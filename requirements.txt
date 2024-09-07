@@ -12,4 +12,7 @@ matplotlib
 seaborn
 facenet-pytorch
 opencv-python
+fastapi[standard]
+uvicorn
+jinja2
 # facenet_pytorch

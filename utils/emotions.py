@@ -1,3 +1,4 @@
+
 import os
 import torch
 import numpy as np
@@ -20,12 +21,10 @@ def set_cache_directory():
     os.environ["XDG_CACHE_HOME"] = os.getcwd()
     os.environ["HUGGINGFACE_HUB_CACHE"] = os.getcwd()
 
-
 def set_device():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Running on device: {}".format(device))
     return device
-
 
 def load_video(scene):
     clip = VideoFileClip(scene)
@@ -34,7 +33,6 @@ def load_video(scene):
     video_data = np.array(list(video.iter_frames()))
     return clip, vid_fps, video, video_data
 
-
 def download_weights(model_name):
     extractor = AutoFeatureExtractor.from_pretrained(model_name)
     model = AutoModelForImageClassification.from_pretrained(model_name)
@@ -42,7 +40,6 @@ def download_weights(model_name):
     # Download model weights to the current working directory
     extractor.save_pretrained(os.getcwd())
     model.save_pretrained(os.getcwd())
-
 
 def detect_emotions(image, mtcnn, extractor, model, emotions):
     temporary = image.copy()
@@ -124,93 +121,99 @@ def create_combined_image(face, class_probabilities):
     return img
 
 
-def emotion_process(input_video, output_option="Graph"):
-    set_cache_directory()
-    device = 'cpu'#set_device()
+def process_video(input_video, output_option="graph"):
+    try:
+        set_cache_directory()
+        device = set_device()
 
-    # Load your video
-    clip, vid_fps, video, video_data = load_video(input_video)
+        # Load your video
+        clip, vid_fps, video, video_data = load_video(input_video)
 
-    # Download weights to the current working directory
-    download_weights("trpakov/vit-face-expression")
+        # Download weights to the current working directory
+        download_weights("trpakov/vit-face-expression")
 
-    # Initialize MTCNN model for single face cropping
-    mtcnn = MTCNN(
-        image_size=160,
-        margin=0,
-        min_face_size=200,
-        thresholds=[0.6, 0.7, 0.7],
-        factor=0.709,
-        post_process=True,
-        keep_all=False,
-        device=device,
-    )
+        # Initialize MTCNN model for single face cropping
+        mtcnn = MTCNN(
+            image_size=160,
+            margin=0,
+            min_face_size=200,
+            thresholds=[0.6, 0.7, 0.7],
+            factor=0.709,
+            post_process=True,
+            keep_all=False,
+            device=device,
+        )
 
-    # Load the pre-trained model and feature extractor
-    extractor = AutoFeatureExtractor.from_pretrained("trpakov/vit-face-expression")
-    model = AutoModelForImageClassification.from_pretrained(
-        "trpakov/vit-face-expression"
-    )
+        # Load the pre-trained model and feature extractor
+        extractor = AutoFeatureExtractor.from_pretrained("trpakov/vit-face-expression")
+        model = AutoModelForImageClassification.from_pretrained(
+            "trpakov/vit-face-expression"
+        )
 
-    # Define a list of emotions
-    emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+        # Define a list of emotions
+        emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
 
-    # List to hold the combined images
-    combined_images = []
+        # List to hold the combined images
+        combined_images = []
 
-    # Create a list to hold the class probabilities for all frames
-    all_class_probabilities = []
+        # Create a list to hold the class probabilities for all frames
+        all_class_probabilities = []
 
-    # Loop over video frames
-    for i, frame in tqdm(
-        enumerate(video_data), total=len(video_data), desc="Processing frames"
-    ):
-        # Convert frame to uint8
-        frame = frame.astype(np.uint8)
+        # Loop over video frames
+        for i, frame in tqdm(
+            enumerate(video_data), total=len(video_data), desc="Processing frames"
+        ):
+            # Convert frame to uint8
+            frame = frame.astype(np.uint8)
 
-        # Call detect_emotions to get face and class probabilities
-        if i % 2 == 0:
-            face, class_probabilities = detect_emotions(
-                Image.fromarray(frame), mtcnn, extractor, model, emotions
-            )
+            # Call detect_emotions to get face and class probabilities
+            if i % 2 == 0:
+                face, class_probabilities = detect_emotions(
+                    Image.fromarray(frame), mtcnn, extractor, model, emotions
+                )
+            else:
+                face, class_probabilities = detect_emotions_v2(
+                    Image.fromarray(frame), mtcnn, extractor, model
+                )
+
+            # If a face was found
+            if face is not None:
+                # Create combined image for this frame
+                combined_image = create_combined_image(face, class_probabilities)
+
+                # Append combined image to the list
+                combined_images.append(combined_image)
+            else:
+                # If no face was found, set class probabilities to None
+                class_probabilities = {emotion: None for emotion in emotions}
+
+            # Append class probabilities to the list
+            all_class_probabilities.append(class_probabilities)
+
+        # Output based on the selected option
+        if output_option == "graph":
+            # Display line plot
+            # plot_emotion_probabilities(all_class_probabilities)
+            # Call the function and store the DataFrame
+            df_output = plot_emotion_probabilities(all_class_probabilities, input_video)
+
+            # If you want to save the data as a list of dictionaries
+            list_of_dicts = df_output.to_dict(orient="records")
+            return list_of_dicts,True
+
+        elif output_option == "video":
+            # Convert list of images to video clip
+            clip_with_plot = ImageSequenceClip(combined_images, fps=vid_fps)
+            output_video_file = os.path.splitext(input_video)[0] + "_output_video.mp4"
+            clip_with_plot.write_videofile(output_video_file, fps=vid_fps)
+            return output_video_file,True
+            # clip_with_plot.ipython_display(width=900)
         else:
-            face, class_probabilities = detect_emotions_v2(
-                Image.fromarray(frame), mtcnn, extractor, model
-            )
+            print("Invalid output option. Choose either 'graph' or 'video'.")
+            return "Invalid output option. Choose either 'graph' or 'video'.",False
 
-        # If a face was found
-        if face is not None:
-            # Create combined image for this frame
-            combined_image = create_combined_image(face, class_probabilities)
-
-            # Append combined image to the list
-            combined_images.append(combined_image)
-        else:
-            # If no face was found, set class probabilities to None
-            class_probabilities = {emotion: None for emotion in emotions}
-
-        # Append class probabilities to the list
-        all_class_probabilities.append(class_probabilities)
-
-    # Output based on the selected option
-    if output_option == "Graph":
-        # Display line plot
-        # plot_emotion_probabilities(all_class_probabilities)
-        # Call the function and store the DataFrame
-        df_output = plot_emotion_probabilities(all_class_probabilities, input_video)
-
-        # If you want to save the data as a list of dictionaries
-        # list_of_dicts = df_output.to_dict(orient="records")
-        return df_output #list_of_dicts
-
-    elif output_option == "Video":
-        # Convert list of images to video clip
-        clip_with_plot = ImageSequenceClip(combined_images, fps=vid_fps)
-        output_video_file = os.path.splitext(input_video)[0] + "_output_video.mp4"
-        clip_with_plot.write_videofile(output_video_file, fps=vid_fps)
-        # clip_with_plot.ipython_display(width=900)
-    else:
-        print("Invalid output option. Choose either 'graph' or 'video'.")
+    except Exception as e:
+        return str(e),False
 
 
 def plot_emotion_probabilities(all_class_probabilities, input_video):
@@ -242,8 +245,8 @@ def plot_emotion_probabilities(all_class_probabilities, input_video):
     # plt.show()
 
     # Return the DataFrame for further use
-    return output_file
+    return df
 
 
 # if __name__ == "__main__":
-#     emotion_process('../test_data/girl_test.mp4', output_option='Video')  # Change the parameters accordingly
+#     process_video('../test_data/girl_test.mp4', output_option='video')  # Change the parameters accordingly

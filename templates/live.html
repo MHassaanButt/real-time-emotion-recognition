@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Livestream Capture</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+
+        #container {
+            text-align: center;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        #startButton {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <h1>Livestream Capture</h1>
+        <button id="startButton">Start Streaming</button>
+        <p id="status">Click the button to start streaming</p>
+    </div>
+
+    <script>
+        // Function to capture livestream and send chunks to backend
+        async function captureLivestreamAndSend() {
+            try {
+                // Get user media (camera/microphone)
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+                // Create a MediaRecorder instance
+                const mediaRecorder = new MediaRecorder(stream);
+
+                // Array to store chunks
+                let chunks = [];
+
+                // Event listener for when data is available
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        chunks.push(event.data);
+                    }
+
+                    // If we have 5 seconds of data, send it to the backend
+                    if (chunks.length === 5) {
+                        sendChunksToBackend(chunks);
+                        chunks = [];
+                    }
+                };
+
+                // Start recording
+                mediaRecorder.start(1000); // Capture data every 1 second
+                document.getElementById('status').textContent = 'Streaming in progress...';
+            } catch (error) {
+                console.error('Error capturing livestream:', error);
+                document.getElementById('status').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Function to send chunks to backend
+        async function sendChunksToBackend(chunks) {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const formData = new FormData();
+            formData.append('video', blob, 'chunk.webm');
+
+            try {
+                const response = await fetch('http://localhost:7000/upload-chunk', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                console.log('Chunk sent successfully');
+            } catch (error) {
+                console.error('Error sending chunk to backend:', error);
+                document.getElementById('status').textContent = 'Error sending chunk: ' + error.message;
+            }
+        }
+
+        // Event listener for the start button
+        document.getElementById('startButton').addEventListener('click', () => {
+            captureLivestreamAndSend();
+            document.getElementById('startButton').disabled = true;
+        });
+    </script>
+</body>
+
+</html>

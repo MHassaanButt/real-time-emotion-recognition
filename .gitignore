@@ -1,5 +1,6 @@
 *.Identifier
 .ipynb_checkpoints/
+static/
 test_data/
 datasets/
 output_mats/
