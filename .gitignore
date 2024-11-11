@@ -1,10 +1,15 @@
 *.Identifier
+*.mp4
 .ipynb_checkpoints/
 static/
 test_data/
 datasets/
+output/
 output_mats/
+utils/output_videos/
+utils/__pycache__
 model.safetensors
 preprocessor_config.json
 config.json
 .idea/
+utils/models/

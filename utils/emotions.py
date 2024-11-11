@@ -15,14 +15,14 @@ from transformers import (
     AutoConfig,
 )
 from PIL import Image, ImageDraw
-
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 def set_cache_directory():
     os.environ["XDG_CACHE_HOME"] = os.getcwd()
     os.environ["HUGGINGFACE_HUB_CACHE"] = os.getcwd()
 
 def set_device():
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     print("Running on device: {}".format(device))
     return device
 
@@ -53,7 +53,7 @@ def detect_emotions(image, mtcnn, extractor, model, emotions):
         outputs = model(**inputs)
 
         probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
-        id2label = AutoConfig.from_pretrained("trpakov/vit-face-expression").id2label
+        id2label = AutoConfig.from_pretrained("models").id2label
         probabilities = probabilities.detach().numpy().tolist()[0]
         class_probabilities = {
             id2label[i]: prob for i, prob in enumerate(probabilities)
@@ -75,7 +75,7 @@ def detect_emotions_v2(image, mtcnn, extractor, model):
         outputs = model(**inputs)
 
         probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
-        id2label = AutoConfig.from_pretrained("trpakov/vit-face-expression").id2label
+        id2label = AutoConfig.from_pretrained("models").id2label
         probabilities = probabilities.detach().numpy().tolist()[0]
         class_probabilities = {
             id2label[i]: prob for i, prob in enumerate(probabilities)
@@ -88,13 +88,19 @@ def detect_emotions_v2(image, mtcnn, extractor, model):
 def create_combined_image(face, class_probabilities):
     colors = {
         "angry": "red",
-        "disgust": "green",
-        "fear": "gray",
+        "unconscious": "green",
+        "painful": "gray",
         "happy": "yellow",
         "neutral": "purple",
         "sad": "blue",
         "surprise": "orange",
     }
+    
+    key_replacement = {'disgust': 'unconscious', 'fear': 'painful'}
+    for old_key, new_key in key_replacement.items():
+        if old_key in class_probabilities:
+            class_probabilities[new_key] = class_probabilities.pop(old_key)        
+   
     palette = [colors[label] for label in class_probabilities.keys()]
 
     fig, axs = plt.subplots(1, 2, figsize=(15, 6))
@@ -120,6 +126,13 @@ def create_combined_image(face, class_probabilities):
     plt.close(fig)
     return img
 
+def key_parser(all_class_probabilities, key_replacement={'disgust': 'unconscious', 'fear': 'painful'}):
+    # Replace keys based on the mapping
+    for item in all_class_probabilities:
+        for old_key, new_key in key_replacement.items():
+            if old_key in item:
+                item[new_key] = item.pop(old_key)
+    return all_class_probabilities
 
 def process_video(input_video, output_option="graph"):
     try:
@@ -128,10 +141,14 @@ def process_video(input_video, output_option="graph"):
 
         # Load your video
         clip, vid_fps, video, video_data = load_video(input_video)
-
+        print("Video loaded")
         # Download weights to the current working directory
-        download_weights("trpakov/vit-face-expression")
-
+        try:
+            pass
+            # download_weights("models")
+        except Exception as e:
+            print(str(e))
+        print("weights downloaded")
         # Initialize MTCNN model for single face cropping
         mtcnn = MTCNN(
             image_size=160,
@@ -143,13 +160,29 @@ def process_video(input_video, output_option="graph"):
             keep_all=False,
             device=device,
         )
-
+        absolute_path = "/home/pb/hb/real-time-emotion-recognition/utils/models"
+        print("os.getcwd()",os.getcwd())
+        print(os.listdir(os.getcwd()))
+        try:
+            print(os.path.exists(absolute_path),os.listdir(absolute_path))
+        except Exception as e:
+            print(str(e))
+        print("MTCNN loaded")
         # Load the pre-trained model and feature extractor
-        extractor = AutoFeatureExtractor.from_pretrained("trpakov/vit-face-expression")
+        # extractor = AutoFeatureExtractor.from_pretrained("trpakov/vit-face-expression")
+        # try:
+        extractor = AutoFeatureExtractor.from_pretrained(absolute_path)
+        
+        # model = AutoModelForImageClassification.from_pretrained(
+        #     "trpakov/vit-face-expression"
+        # )
         model = AutoModelForImageClassification.from_pretrained(
-            "trpakov/vit-face-expression"
+            absolute_path
         )
-
+        print("Model loaded")
+        # except Exception as e:
+        #     print(str(e))
+        print("Extractor and model loaded",extractor, model)
         # Define a list of emotions
         emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
 
@@ -158,45 +191,48 @@ def process_video(input_video, output_option="graph"):
 
         # Create a list to hold the class probabilities for all frames
         all_class_probabilities = []
-
+        print("Checkpoint 1")
         # Loop over video frames
         for i, frame in tqdm(
             enumerate(video_data), total=len(video_data), desc="Processing frames"
         ):
-            # Convert frame to uint8
-            frame = frame.astype(np.uint8)
+            try:
+                # Convert frame to uint8
+                frame = frame.astype(np.uint8)
 
-            # Call detect_emotions to get face and class probabilities
-            if i % 2 == 0:
-                face, class_probabilities = detect_emotions(
-                    Image.fromarray(frame), mtcnn, extractor, model, emotions
-                )
-            else:
-                face, class_probabilities = detect_emotions_v2(
-                    Image.fromarray(frame), mtcnn, extractor, model
-                )
+                # Call detect_emotions to get face and class probabilities
+                if i % 2 == 0:
+                    face, class_probabilities = detect_emotions(
+                        Image.fromarray(frame), mtcnn, extractor, model, emotions
+                    )
+                else:
+                    face, class_probabilities = detect_emotions_v2(
+                        Image.fromarray(frame), mtcnn, extractor, model
+                    )
 
-            # If a face was found
-            if face is not None:
-                # Create combined image for this frame
-                combined_image = create_combined_image(face, class_probabilities)
+                # If a face was found
+                if face is not None:
+                    # Create combined image for this frame
+                    combined_image = create_combined_image(face, class_probabilities)
 
-                # Append combined image to the list
-                combined_images.append(combined_image)
-            else:
-                # If no face was found, set class probabilities to None
-                class_probabilities = {emotion: None for emotion in emotions}
-
+                    # Append combined image to the list
+                    combined_images.append(combined_image)
+                else:
+                    # If no face was found, set class probabilities to None
+                    class_probabilities = {emotion: None for emotion in emotions}
+            except Exception as e:
+                print(str(e))
             # Append class probabilities to the list
             all_class_probabilities.append(class_probabilities)
-
+        all_class_probabilities=key_parser(all_class_probabilities)    
+        print("All class probabilities",all_class_probabilities)
         # Output based on the selected option
         if output_option == "graph":
             # Display line plot
             # plot_emotion_probabilities(all_class_probabilities)
             # Call the function and store the DataFrame
             df_output = plot_emotion_probabilities(all_class_probabilities, input_video)
-
+            print("checking",df_output)
             # If you want to save the data as a list of dictionaries
             list_of_dicts = df_output.to_dict(orient="records")
             return list_of_dicts,True
@@ -204,7 +240,9 @@ def process_video(input_video, output_option="graph"):
         elif output_option == "video":
             # Convert list of images to video clip
             clip_with_plot = ImageSequenceClip(combined_images, fps=vid_fps)
-            output_video_file = os.path.splitext(input_video)[0] + "_output_video.mp4"
+            os.makedirs("output_videos", exist_ok=True)
+            # output_video_file = os.path.splitext(input_video)[0] + "_output_video.mp4"
+            output_video_file = os.path.join("output_videos", os.path.basename(input_video))
             clip_with_plot.write_videofile(output_video_file, fps=vid_fps)
             return output_video_file,True
             # clip_with_plot.ipython_display(width=900)
@@ -219,8 +257,8 @@ def process_video(input_video, output_option="graph"):
 def plot_emotion_probabilities(all_class_probabilities, input_video):
     colors = {
         "angry": "red",
-        "disgust": "green",
-        "fear": "gray",
+        "unconscious": "green",
+        "painful": "gray",
         "happy": "yellow",
         "neutral": "purple",
         "sad": "blue",
@@ -246,7 +284,23 @@ def plot_emotion_probabilities(all_class_probabilities, input_video):
 
     # Return the DataFrame for further use
     return df
+def set_cache_directory():
+    # Set to empty strings or skip this function if local loading works
+    os.environ["XDG_CACHE_HOME"] = ""
+    os.environ["HUGGINGFACE_HUB_CACHE"] = ""
 
+if __name__ == "__main__":
+    # set_cache_directory()
+    path='/home/pb/hb/real-time-emotion-recognition/test_data'
+    model_path = "/home/pb/hb/real-time-emotion-recognition/utils/models"
 
-# if __name__ == "__main__":
-#     process_video('../test_data/girl_test.mp4', output_option='video')  # Change the parameters accordingly
+    # if os.path.exists(path):
+    try:
+        for i in range(len(os.listdir(path))):
+            process_video(os.path.join(path,os.listdir(path)[i]), output_option='video')
+    except Exception as e:
+        print(str(e))
+        # process_video(path, output_option='video')
+    # else:
+    #     print("File does not exist")
+    # process_video('/home/pb/hb/real-time-emotion-recognition/test_data/arabic_emo.mp4', output_option='video')  # Change the parameters accordingly
